@@ -17,7 +17,7 @@ import {EventObject} from 'xstate';
 import {Machine, assign} from 'xstate';
 
 import {useMachine} from '@xstate/react';
-import {Button} from 'react-native-paper';
+import {Button, ActivityIndicator, Colors} from 'react-native-paper';
 
 const mockData = [...Array(40)].map((x, index) => `${index + 1}`);
 
@@ -42,6 +42,7 @@ enum EventTypes {
   MORE = 'MORE',
   DONE = 'DONE',
   FAIL = 'FAIL',
+  RESET = 'RESET',
 }
 
 type EventTypesSchema = EventTypes.FETCH | EventTypes.DONE | EventTypes.FAIL;
@@ -76,6 +77,16 @@ const myMachine = Machine<MachineContext, MachineStateSchema, Events>({
             data: ({data}, event: any) => [...data, ...event.newData],
           }),
         },
+        [EventTypes.DONE]: {
+          target: 'complete',
+          actions: assign({
+            data: ({data}, event: any) => [...data, ...event.newData],
+          }),
+        },
+        [EventTypes.RESET]: {
+          target: 'idle',
+          actions: assign({data: (data, event) => []}),
+        },
       },
       invoke: {
         src: (context: MachineContext, _e: any) => {
@@ -89,13 +100,23 @@ const myMachine = Machine<MachineContext, MachineStateSchema, Events>({
               data.length + dataPerFetch,
             );
 
+            const isThereMore =
+              mockData.length > context.data.length + newData.length;
+
             // this callback can be replaced with onDone
-            cb({type: EventTypes.MORE, newData});
+
+            // throw new Error();
+
+            if (isThereMore) {
+              cb({type: EventTypes.MORE, newData});
+            } else {
+              cb({type: EventTypes.DONE, newData});
+            }
           };
         },
         // if callback is used in invoke key then the onDone is skipped
         onDone: {actions: () => console.log('done fetching from onDone')},
-        onError: {actions: () => console.log('error occured')},
+        onError: {target: 'fail'},
       },
     },
     more: {
@@ -116,6 +137,7 @@ const App = () => {
   return (
     <SafeAreaView style={styles.center}>
       <Text style={styles.title}>State Machine</Text>
+
       <TouchableOpacity
         onPress={() => {
           send(EventTypes.FETCH);
@@ -129,18 +151,39 @@ const App = () => {
         <Text>Complete machine</Text>
       </Button>
       <Text style={{marginBottom: 30}}>{curState.value}</Text>
+
+      {curState.matches('fail') && <Text>Wyjebalo error</Text>}
+
       <FlatList
         data={data}
         keyExtractor={(item, index) => index.toString()}
+        onRefresh={() => console.log('reset')}
+        refreshing={true}
         renderItem={({item}) => (
-          <Text style={{height: 200, backgroundColor: 'grey', margin: 10}}>
+          <Text
+            style={{
+              height: 100,
+              backgroundColor: Colors.amber200,
+              margin: 10,
+              padding: 20,
+            }}>
             {item}
           </Text>
         )}
-        onEndReachedThreshold={0.25}
-        onEndReached={() => send(EventTypes.FETCH)}
-        // keyExtractor={(item: any, index: any) => index}
-        // renderItem={({item}) => <Text>{item}</Text>}
+        onEndReachedThreshold={0}
+        onEndReached={() => curState.matches('more') && send(EventTypes.FETCH)}
+        ListFooterComponent={
+          <>
+            {curState.matches('fetching') && (
+              <ActivityIndicator animating color={Colors.green700} />
+            )}
+            {curState.matches('complete') && (
+              <Text style={{textAlign: 'center', marginBottom: 20}}>
+                No more content to load
+              </Text>
+            )}
+          </>
+        }
       />
     </SafeAreaView>
   );
